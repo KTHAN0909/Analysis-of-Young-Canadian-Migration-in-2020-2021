@@ -1,5 +1,5 @@
 ---
-title: 'Assignment 2: Why did young Canadian adults move to B.C. from 2020 to 2021?'
+title: ' Why did young Canadian adults move to B.C. from 2020 to 2021?'
 author: "Taehyun An"
 date: "2025-10-19"
 output:
