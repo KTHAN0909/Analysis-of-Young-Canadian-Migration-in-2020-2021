@@ -1,0 +1,928 @@
+---
+title: 'Assignment 2: Why did young Canadian adults move to B.C. from 2020 to 2021?'
+author: "Taehyun An"
+date: "2025-10-19"
+output:
+  html_document: default
+  pdf_document: default
+  fontsize: 12pt           # or 11pt
+  header-includes:
+  - \usepackage{setspace}
+  - \onehalfspacing
+---
+
+```{=html}
+<style>
+/* Center widgets and ensure a consistent gap after each plot */
+.html-widget { margin-left:auto; margin-right:auto; margin-bottom:50px; clear:both; }
+</style>
+```
+
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+fig.align = "center",
+out.width = "100%",
+fig.width = 9, fig.height = 5,
+echo = FALSE, warning = FALSE, message = FALSE
+)
+
+knitr::asis_output('.figure, .html-widget { margin: 18px 0 28px 0; }')
+
+```
+
+```{r install, eval = FALSE, include=FALSE}
+install.packages("tidyverse")
+install.packages("dplyr")
+install.packages("ggplot2")
+install.packages("stringr")
+install.packages("scales")
+install.packages("matrixStats")
+install.packages(c("sf","rnaturalearth","rnaturalearthdata","ggplot2","dplyr","viridis"))
+
+install.packages("remotes")
+remotes::install_github("ropensci/rnaturalearthhires")  # or latest tag
+install.packages("plotly")
+install.packages("readr")
+install.packages("shawdowtext")
+install.packages("htmlwidgets")
+install.packages("webshot2") 
+```
+
+
+```{r libraries, include=FALSE}
+library(tidyverse) 
+library(scales)
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+library(sf)
+library(viridis)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rnaturalearthhires)   # register datasets
+library(plotly)
+library(htmlwidgets)
+library(shadowtext)
+library(readr)
+library(webshot2)
+```
+
+
+```{r, include=FALSE}
+#These datas are provided in the dataset page in the quercus.
+census_metro <- read_csv("census_21_metro.csv") 
+census_other <- read_csv("census_21_other.csv")
+df <- bind_rows(census_metro, census_other)
+
+
+# the file exceeds the upload limit; the data file was retrieved from https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410032501
+jvws <- read.csv("jvws.csv")
+unique(jvws$SCALAR_FACTOR) #No weights
+
+
+# the file exceeds the upload limit; the data file was retrieved from https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1110006601
+
+MBM_Data <- read_csv("MBM_Data.csv")
+
+```
+
+
+```{r, include=FALSE}
+cip_lookup <- tibble::tribble(
+  ~cip2021, ~cip_label,
+   1L, "Education",
+   2L, "Visual & performing arts, and communications technologies",
+   3L, "Humanities",
+   4L, "Social & behavioural sciences and law",
+   5L, "Business, management & public administration",
+   6L, "Physical & life sciences and technologies",
+   7L, "Mathematics, computer & information sciences",
+   8L, "Architecture, engineering & related trades",
+   9L, "Agriculture, natural resources & conservation",
+  10L, "Health & related fields",
+  11L, "Personal, protective & transportation services",
+  12L, "Other",
+  13L, "No postsecondary certificate, diploma or degree",
+  88L, "Not available",
+  99L, "Not applicable"
+)
+
+
+
+cip_stem_sum_lookup <- tibble::tribble(
+  ~cip2021_stem_sum, ~cip_stem_sum_label,
+  
+  1L, "Science and science technology",
+  2L, "Engineering and engineering technology",
+  3L, "Mathematics and computer and information sciences",
+  4L, "Business and administration",
+  5L, "Arts and humanities",
+  6L, "Social and behavioural sciences",
+  7L, "Legal professions and studies", 
+  8L, "Health care",
+  9L, "Education and teaching",
+  10L, "Trades, services, natural resources and conservation",
+  11L, "No postsecondary certificate, diploma or degree",
+
+  88L, "Not available",
+  99L, "Not applicable" 
+  
+)
+
+
+noc21_lookup <- tibble::tribble(
+  ~noc21_code, ~noc21_label,
+   1L,  "Legislative and senior managers",
+   2L,  "Middle management occupations",
+   3L,  "Professional occupations in business and finance",
+   4L,  "Administrative & financial supervisors and specialized admin occs",
+   5L,  "Administrative occupations & transportation logistics occs",
+   6L,  "Admin & financial support and supply chain logistics occs",
+   7L,  "Professional occupations in natural & applied sciences",
+   8L,  "Technical occupations related to natural & applied sciences",
+   9L,  "Professional occupations in health",
+  10L,  "Technical occupations in health",
+  11L,  "Assisting occupations in support of health services",
+  12L,  "Professional occupations in law, education, social, community & gov’t",
+  13L,  "Front-line public protection & paraprofessional legal/social/edu occs",
+  14L,  "Assisting/care providers/student monitors/crossing guards etc.",
+  15L,  "Professional & technical occupations in art, culture & sport",
+  16L,  "Other occupations in art, culture & sport",
+  17L,  "Retail sales & service supervisors and specialized sales/service occs",
+  18L,  "Occupations in sales & services",
+  19L,  "Sales/service reps & other customer/personal services occs",
+  20L,  "Sales & service support occupations",
+  21L,  "Technical trades & transportation officers and controllers",
+  22L,  "General trades",
+  23L,  "Mail/message distribution & other transport equipment operators etc.",
+  24L,  "Helpers & labourers and other transport drivers/operators/labourers",
+  25L,  "Natural resources, agriculture & related production occs",
+  26L,  "Processing, manufacturing & utilities occs",
+  88L,  "Not available"
+)
+
+naics_lookup <- tribble(
+  ~naics2, ~naics_label,
+  11L, "Agriculture, forestry, fishing and hunting",
+  21L, "Mining, quarrying, and oil and gas extraction",
+  22L, "Utilities",
+  23L, "Construction",
+  31L, "Manufacturing (31–33)",
+  32L, "Manufacturing (31–33)",
+  33L, "Manufacturing (31–33)",
+  41L, "Wholesale trade",
+  44L, "Retail trade (44–45)",
+  45L, "Retail trade (44–45)",
+  48L, "Transportation and warehousing (48–49)",
+  49L, "Transportation and warehousing (48–49)",
+  51L, "Information and cultural industries",
+  52L, "Finance and insurance",
+  53L, "Real estate and rental and leasing",
+  54L, "Professional, scientific and technical services",
+  55L, "Management of companies and enterprises",
+  56L, "Admin/support, waste mgmt and remediation",
+  61L, "Educational services",
+  62L, "Health care and social assistance",
+  71L, "Arts, entertainment and recreation",
+  72L, "Accommodation and food services",
+  81L, "Other services (except public administration)",
+  91L, "Public administration"
+)
+
+
+pr_lookup <- tibble::tribble(
+  ~pr_code, ~pr_label,                                   ~pr_abbr,           ~pr_order,
+   10L,      "Newfoundland and Labrador",                  "NL",                1L,
+   11L,      "Prince Edward Island",                       "PE",                2L,
+   12L,      "Nova Scotia",                                "NS",                3L,
+   13L,      "New Brunswick",                              "NB",                4L,
+   24L,      "Quebec",                                     "QC",                5L,
+   35L,      "Ontario",                                    "ON",                6L,
+   46L,      "Manitoba",                                   "MB",                7L,
+   47L,      "Saskatchewan",                               "SK",                8L,
+   48L,      "Alberta",                                    "AB",                9L,
+   59L,      "British Columbia",                           "BC",                10L,
+   70L,      "Northern Canada (YT, NT, NU)",               "North",             11L,
+   88L,      "Not available",                               NA,                 98L,
+   99L,      "Not applicable (external migrants or <1y)",   NA,                 99L
+)
+
+
+mob1_lookup <- tibble::tribble(
+  ~mob1_code, ~mob1_label,                                  ~mob1_group,          ~notes,                                           ~mob1_order,
+   1L,        "Non-movers",                                 "Stayed in dwelling", "Same dwelling as 1 year ago",                     1L,
+   2L,        "Non-migrants",                               "Moved: same CSD",    "Different dwelling, same census subdivision",     2L,
+   3L,        "Different CSD, same census division",        "Moved: same CD",     "Different municipality, same county/region",      3L,
+   4L,        "Different CD, same province",                "Moved: intra-prov",  "Different county/region, same province/territory",4L,
+   5L,        "Interprovincial migrants",                   "Moved: inter-prov",  "Different province/territory",                    5L,
+   6L,        "External migrants",                          "Moved: international","Lived outside Canada 1 year ago",                6L,
+   8L,        "Not available",                              "Missing",            NA_character_,                                     98L,
+   9L,        "Not applicable (under 1 year old)",          "Out of universe",    "Aged <1 on census day",                           99L
+) %>%
+  mutate(
+    is_mover   = mob1_code %in% c(2L,3L,4L,5L,6L),
+    is_migrant = mob1_code %in% c(3L,4L,5L,6L)   # excludes non-migrants (code 2)
+  )
+
+```
+# Introduction
+Between 2020 and 2021, British Columbia gained over 10,000 young adults from other provinces. The largest inter-provincial migration surge for this age group in decades. Using multiple datasets from the government of Canada, we aim to understand why British Columbia (B.C.) became the leading destination for this age group between 2020 and 2021. The analysis follows a structured approach: identifying where young people moved, understanding what motivated these moves, and linking economic and lifestyle factors to migration behavior. Beyond COVID-related mobility shifts, this study focuses on how job opportunities, income levels, and cost-of-living differences shaped inter-provincial decisions.
+
+
+### Where Are Young People Moving?
+Young adult migration patterns carry high stakes for communities. When thousands of 25-34 years old relocate, municipalities must rapidly adapt housing supply, healthcare capacity, and infrastructure to accommodate them. Understanding what drives these moves helps policymakers anticipate needs rather than react to crises.
+
+
+
+```{r, include=FALSE}
+base <- df %>% filter(between(AGEGRP, 9, 10))
+mov  <- base %>% filter(Mob1 == 5, PR != PR1)
+
+in_by  <- mov %>% group_by(PR)  %>% summarise(inflow  = sum(WEIGHT), .groups="drop")
+out_by <- mov %>% group_by(PR1) %>% summarise(outflow = sum(WEIGHT), .groups="drop") %>% rename(PR = PR1)
+
+net_all <- full_join(in_by, out_by, by="PR") %>%
+  mutate(across(c(inflow, outflow), ~replace_na(.x, 0)),
+         net_flow = as.integer(round(inflow - outflow))) %>%
+  left_join(pr_lookup %>% select(pr_code, pr_label, pr_abbr), by = c("PR" = "pr_code"))
+
+plot_df <- net_all %>%
+  arrange(desc(net_flow)) %>%
+  mutate(
+    pr_abbr   = factor(pr_abbr, levels = pr_abbr),     # lock order
+    bar_color = ifelse(net_flow >= 0, "#3b82f6", "#ef4444")
+  )
+
+# ---- sizing - ensure all bars are visible ----
+n_bars <- nrow(plot_df)
+row_px <- 45  # Increased from 36 to give more space per bar
+min_h  <- 700  # Set a minimum height
+fig_h  <- max(min_h, 180 + n_bars * row_px)  # Ensure enough space for all provinces
+
+# ---- labels only for sufficiently long bars ----
+max_abs   <- max(abs(plot_df$net_flow), na.rm = TRUE)
+label_min <- 0.06 * max_abs
+text_vec  <- ifelse(abs(plot_df$net_flow) >= label_min, as.character(plot_df$pr_abbr), "")
+textpos   <- ifelse(text_vec == "", "none", "inside")
+
+# ---- build plot (one trace per bar so hover can dim others) ----
+p1 <- plotly::plot_ly(height = fig_h)  # Use calculated height
+for (i in seq_len(nrow(plot_df))) {
+  p1 <- plotly::add_bars(
+    p1,
+    x = plot_df$net_flow[i],
+    y = plot_df$pr_abbr[i],
+    orientation = "h",
+    marker = list(color = plot_df$bar_color[i], opacity = 0.8),
+    text = text_vec[i],
+    textposition = textpos[i],
+    customdata = plot_df$pr_label[i],
+    hovertemplate = "<b>%{customdata}</b><br>Net flow of migrants: %{x:,}<extra></extra>",
+    showlegend = FALSE
+  )
+}
+
+p1 <- plotly::layout(
+  p1,
+  autosize = TRUE,
+  # Do NOT set fixed width/height here - let it use fig_h from plot_ly()
+  font = list(size = 18),
+
+  title = list(
+    text  = "Which province did young Canadians migrate to the most?
+<br>Net interprovincial migration by province",
+    font  = list(size = 24),
+    x = 0.5, xanchor = "center",
+    y = 0.96,
+    yanchor = "top",
+    pad = list(b = 30)
+  ),
+
+  margin = list(t = 180, b = 160, l = 120, r = 40),
+  bargap = 0.05,
+
+  xaxis = list(
+    title = list(
+      text = "Net flow of migrants (in − out)", 
+      standoff = 20,
+      font = list(size = 22)
+    ),
+    tickfont   = list(size = 16),
+    tickformat = ",d",
+    zeroline   = TRUE,
+    automargin = TRUE
+  ),
+
+  yaxis = list(
+    title = list(text = "", font = list(size = 22)),
+    tickfont      = list(size = 16),
+    categoryorder = "array",
+    categoryarray = levels(plot_df$pr_abbr),
+    automargin    = TRUE,
+    fixedrange    = FALSE  # Allow scrolling if needed
+  ), 
+  
+  annotations = list(
+    list(
+      text = "Source: Statistics Canada (Census CMA/CA, 2021)",
+      x = 0.5, xref = "paper", xanchor = "center",
+      y = -0.25, yref = "paper", yanchor = "top", 
+      showarrow = FALSE,
+      align = "center",
+      font = list(size = 14, color = "#374151")
+    )
+  )
+)
+
+p1 <- plotly::config(p1, displayModeBar = FALSE)
+
+# ---- hover highlight (brighten hovered bar, dim others) ----
+p1 <- htmlwidgets::onRender(p1, "
+function(el,x){
+  var gd = document.getElementById(el.id);
+  function setAllOpacity(val){
+    var n = gd.data.length;
+    Plotly.restyle(gd, {'marker.opacity': Array(n).fill(val),
+                        'marker.line.width': Array(n).fill(0)},
+                   Array.from({length:n},(_,i)=>i));
+  }
+  gd.on('plotly_hover', function(e){
+    setAllOpacity(0.25);
+    var t = e.points[0].curveNumber;
+    Plotly.restyle(gd, {'marker.opacity': 1,
+                        'marker.line.width': 2,
+                        'marker.line.color': '#1f2937'}, [t]);
+  });
+  gd.on('plotly_unhover', function(){ setAllOpacity(0.65); });
+}
+")
+```
+
+
+```{r, fig.align='center', out.width='100%', echo=FALSE, fig.cap=" "}
+
+p1
+
+```
+
+
+
+
+
+
+
+
+
+
+
+The first visualization on net inter-provincial migration reveals  “Which provinces gained or lost the most young adult residents in 2021?”  It was British Columbia that led the country in attracting young adults, represented by the strong positive bar in blue. In contrast, provinces like Ontario and Saskatchewan show negative net migration in red, meaning more young people left than arrived. This map establishes the foundation of our story: it shows that British Columbia was uniquely positioned as the top destination for internal migration in Canada.
+
+The visualization prompts a deeper question, where did these movers come from, and what regional characteristics might explain the direction of flow?
+
+
+## Where are young Canadians leaving from to move to British Columbia?
+Our visualization tells us a hidden story of young adults, a story that explains why young adults are moving to B.C. To dig into what this story could be, we first check which provinces young Canadians leave from to move to B.C. the most and the least. The visualization below describes the net inter- provincial migration from other provinces to B.C.
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, include=FALSE}
+inflows_pr_to_bc <- df %>%
+  filter(PR == 59,            # now living in BC
+         PR1 != 59,           # came from outside BC
+         Mob1 == 5,          # interprovincial movers (your codebook)
+         between(AGEGRP, 9, 10)) %>%  # optional: 25–34 only
+  group_by(PR1) %>%
+  summarise(inflows = as.integer(round(sum(WEIGHT, na.rm = TRUE))), .groups = "drop") %>% 
+  # ensure every province code (except BC as origin) is present; missing ones become 0
+  complete(PR1 = pr_lookup$pr_code[!pr_lookup$pr_code %in% c(59,88,99)],
+           fill = list(inflows = 0)) %>%
+  left_join(pr_lookup, by = c("PR1" = "pr_code"))
+
+
+# Outflow from BC (lived in BC a year ago, now outside BC)
+outflow_bc_to_pr <- df %>%
+  filter(Mob1 == 5, PR1 == 59, PR != 59, between(AGEGRP, 9, 10)) |>
+  group_by(PR) |>
+  summarise(outflow = as.integer(round(sum(WEIGHT, na.rm = TRUE)))) |>
+  left_join(pr_lookup, by = c("PR" = "pr_code"))
+
+
+netflow_bc <- inflows_pr_to_bc %>%
+  transmute(PR = PR1, inflows) %>%                      # align key name
+  full_join(outflow_bc_to_pr %>% select(PR, outflow),   # keep provinces present in either table
+            by = "PR") %>%
+  mutate(
+    inflows = replace_na(inflows, 0),
+    outflow = replace_na(outflow, 0),
+    net_flow = as.integer(round(inflows - outflow))
+  ) %>%
+  select(PR, net_flow) %>%
+  arrange(PR) |>
+  left_join(pr_lookup, by = c("PR" = "pr_code")) |>
+  transmute(PR = pr_label, net_flow)
+
+```
+
+
+
+```{r, include=FALSE}
+# ---- build plotting frame ----
+plot_df <- netflow_bc %>%
+  rename(pr_label = PR) %>%                                  # PR is already the full label
+  left_join(pr_lookup %>% select(pr_code, pr_label, pr_abbr),
+            by = "pr_label") %>%
+  mutate(
+    color = ifelse(net_flow >= 0, "#3b82f6", "#ef4444")      # blue / red
+  ) %>%
+  arrange(desc(net_flow)) %>%                                # sort by net flow (desc)
+  mutate(
+    # lock x order to this sorted order
+    pr_abbr = factor(pr_abbr, levels = pr_abbr),
+    # pretty wrapped label for hover (axis shows abbrev only)
+    hover_lbl = pr_label
+  )
+
+# ---- plot: one trace per bar so hover can change opacity ----
+p2 <- plotly::plot_ly()
+for (i in seq_len(nrow(plot_df))) {
+  p2 <- plotly::add_bars(
+    p2,
+    x = plot_df$pr_abbr[i],                 # abbreviations on axis
+    y = plot_df$net_flow[i],
+    hovertemplate = paste0("<b>", plot_df$hover_lbl[i], "</b><br>",
+                           "Net flow to BC: %{y:,}<extra></extra>"),
+    marker = list(color = plot_df$color[i], opacity = 0.65),
+    showlegend = FALSE
+  )
+}
+
+# ensure Plotly respects the factor order on the x-axis
+p2 <- plotly::layout(
+  p2,
+  autosize = TRUE,
+  title = list(
+    text  = "What is the net number of migrants coming to B.C. by province \n (migrants into B.C. \u2212 migrants out from each province)",
+    font  = list(size = 22),
+    x = 0.5, xanchor = "center"
+  ),
+  font = list(size = 18),
+  xaxis = list(
+    title = list(text = "", font = list(size = 22)),
+    tickfont = list(size = 16),
+    automargin = TRUE,
+    categoryorder = "array",
+    categoryarray = levels(plot_df$pr_abbr)
+  ),
+  title = list(font = list(size = 22)),
+  margin = list(t = 110, r = 40, b = 110, l = 40)
+)
+
+# optional: hide toolbar so it doesn't cover the title
+p2 <- plotly::config(p2, displayModeBar = FALSE)
+
+# ---- hover highlight (brighten hovered bar, dim others) ----
+p2 <- htmlwidgets::onRender(p2, "
+function(el,x){
+  var gd = document.getElementById(el.id);
+  function setAllOpacity(val){
+    var n = gd.data.length;
+    Plotly.restyle(gd, {'marker.opacity': Array(n).fill(val),
+                        'marker.line.width': Array(n).fill(0)},
+                   Array.from({length:n},(_,i)=>i));
+  }
+  gd.on('plotly_hover', function(e){
+    setAllOpacity(0.25);
+    var t = e.points[0].curveNumber;
+    Plotly.restyle(gd, {'marker.opacity': 1,
+                        'marker.line.width': 2,
+                        'marker.line.color': '#1f2937'}, [t]);
+  });
+  gd.on('plotly_unhover', function(){ setAllOpacity(0.65); });
+}
+")
+```
+
+
+```{r, fig.align='center', out.width='100%', echo=FALSE, fig.cap=" "}
+p2
+```
+This visualization answers the question: Which provinces contributed the most young adult migrants to British Columbia between in 2021? It presents the net inter-provincial flow to B.C. using Census 2021 data, where blue bars represent inflows and red bars represent outflows. The chart clearly shows that Ontario led by a wide margin, followed by Alberta, while provinces like Nova Scotia and Newfoundland experienced negative migration to B.C. The big magnitude of Ontario’s blue bar indicates that a significant portion of young Canadians left Ontario to choose B.C. as their new home.
+
+ 
+
+
+
+
+
+
+### Why B.C. out of all other provinces?
+As we have seen above, our findings heavily indicate that young Canadians had a stronger preference to moving to B.C. than any other provinces, especially from Ontario. We hypothesize that this trend might be reflected by economic and social mobility factors. Ontario’s high cost of living and competitive job market likely pushed many young adults to seek new opportunities, while B.C.’s growing technology and service sectors pulled them in. Alberta’s strong contribution, on the other hand, may relate to its geographic proximity and shared lifestyle preferences with B.C. The visualization visually confirms how migration intensity varies by region, highlighting B.C.’s cross-provincial appeal even among distant provinces.
+
+We now move to the next question: if Ontario and Alberta, two economically strong provinces are losing young adults to B.C., what is driving this flow? Are they moving for higher income prospects or for a better balance between financial stability and overall quality of life?
+
+We further explore this by comparing the median incomes of young adults in each province, specifically the median total income after-tax and the median employment income. 
+
+Note that there are a few limitations to this approach. Total income can come from multiple sources beyond employment, meaning that higher median total income does not necessarily indicate that young adults are earning more through work in that province. Another limitation is that the median employment income values are pre-tax, so they do not reflect take-home pay. These measures therefore serve as reference points to understand general income differences. As mentioned above, the visualization represents the median incomes of all young adults grouped by province, not just inter-provincial migrants.
+
+These limitation challenges indicate that we should interpret income differences cautiously. A young adult in B.C. earning 45K CAD may have more purchasing power than an Albertan earning 50K CAD if provincial tax rates, housing costs, or public service quality differ substantially. Our analysis provides directional insights about relative economic positioning but cannot definitively establish whether moving to B.C. improves individual financial outcomes.
+
+
+
+
+
+```{r, include=FALSE}
+median_young_pr <- df |>
+  filter(between(AGEGRP,9,10), EmpIn < 88888888, TotInc_AT < 88888888, PR != 70) |>
+  group_by(PR) %>% 
+  left_join(pr_lookup, by = c("PR" = "pr_code")) |>
+  summarize(
+    med_aftertax = matrixStats::weightedMedian(TotInc_AT, w = WEIGHT, na.rm = TRUE),
+    med_employ_inc   = matrixStats::weightedMedian(EmpIn, w = WEIGHT, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(med_aftertax)) |>
+  left_join(pr_lookup, by = c("PR" = "pr_code"))
+```
+
+```{r, include = FALSE}
+
+
+# use one common range for both axes
+rng <- range(c(median_young_pr$med_employ_inc,
+               median_young_pr$med_aftertax), na.rm = TRUE)
+
+diag <- data.frame(slope = 1, intercept = 0,
+                   key = "x = y (after-tax = employment)")
+
+p3 <- ggplot(median_young_pr, aes(med_employ_inc, med_aftertax)) +
+  geom_abline(
+    data = diag,
+    aes(slope = slope, intercept = intercept, linetype = key),
+    linewidth = 1.1, color = "red"
+  ) +
+  geom_point(aes(color = pr_abbr), size = 7) +
+  geom_text(aes(label = pr_abbr), size = 7.5, vjust = -0.6, fontface = "bold") +
+  coord_fixed(ratio = 1) +
+  scale_x_continuous(
+    labels = label_dollar(),
+    limits = rng,
+    expand = expansion(mult = 0.12)
+  ) +
+  scale_y_continuous(
+    labels = label_dollar(),
+    limits = rng,
+    expand = expansion(mult = 0.12)
+  ) +
+  scale_color_discrete(name = "Province (abbr)") +
+  scale_linetype_manual(values = "dashed", name = "Reference") +
+  guides(
+    color = guide_legend(override.aes = list(size = 8)),
+    linetype = guide_legend(override.aes = list(color = "red", linewidth = 1.2))
+  ) +
+  labs(
+    x = "Weighted median employment income",
+    y = "Weighted median after-tax total income",
+    title = "Which province did young Canadian adults make the most income?",
+    subtitle = "Comparison of median incomes (Median After-Tax Income vs Median Employment Income)\nfor young adults (25–34) by province in 2021.",
+    caption = "Source: Statistics Canada (Census CMA/CA, 2021)"
+  ) +
+  theme_minimal(base_size = 24) +
+  theme(
+    legend.position = "top",
+    legend.text = element_text(size = 20),
+    legend.title = element_text(size = 25, face = "bold"),
+    legend.key.height = unit(1.2, "cm"),
+    legend.key.width  = unit(2.0, "cm"),
+    axis.text = element_text(size = 20),
+    axis.title.y = element_text(margin = margin(r = 40, t = 40, b = 80), size = 24, face = "bold"),
+    axis.title.x = element_text(margin = margin(t = 40), size = 24, face = "bold"),
+    plot.title = element_text(size = 26, face = "bold"),
+    plot.subtitle = element_text(size = 20)
+  )
+
+
+
+p3
+
+```
+
+```{r, fig.width = 20, fig.height=20, include = TRUE, echo=FALSE}
+p3
+```
+
+
+The scatter-plot reveals an important pattern, points cluster tightly along the diagonal, showing that employment income drives most variation in after-tax income. Provinces above the line (where points sit higher than expected) derive more income from investments or transfers rather than wages. This relationship helps contextualize B.C.'s position: competitive employment income translates directly into strong after-tax earnings for young adults.
+
+The chart reveals that Alberta and Saskatchewan lead with the highest median incomes, followed by B.C. and Ontario. This pattern shows that B.C. offers competitive wages higher than Ontario but lower than Alberta and Saskatchewan, suggesting that income potential in B.C. remains strong enough to attract migrants despite not being the absolute highest.
+
+From an interpretive perspective, this visualization helps connect economic motivation with migration behavior. For young adults in Ontario, where job competition and housing costs are high, B.C. presents a region where they can maintain relatively high incomes while gaining lifestyle benefits such as a milder climate and better work–life balance. For Alberta or Saskatchewan residents, however, the slightly lower income levels in B.C. may make relocation less financially compelling even with its appealing environment. This dual insight highlights that migration decisions are not purely about maximizing income but about balancing financial opportunity with overall quality of life.
+
+Having analyzed income differences, we now look deeper into other financial opportunities that may influence migration. The next visualization focuses on job market conditions, specifically the number of job vacancies and the average offered hourly wage across provinces. These variables help reveal whether B.C.’s economic structure offers not just income potential but also employment accessibility—factors that go beyond what census data alone can show.
+
+
+
+
+
+
+
+
+
+### Does B.C. have one of the highest job vacancy rates and averaged offered hourly wage by provinces?
+
+
+To further explore the financial motivations behind inter-provincial migration, we analyzed the Job Vacancy and Wage Survey (JVWS) dataset. We want to look into if B.C. has one of the highest job vacancy rates and averaged offered hourly wage compared to other provinces. This dataset provides information on job vacancies, payroll employees, job vacancy rates, and average offered hourly wages across Canadian provinces. 
+
+Note: During 2020, data for the second and third quarters of 2020 are unavailable due to some Statistics Canada operations being temporarily suspended during the COVID-19 pandemic. So the data is based on the 4th quarter of 2020 to the second quarter of 2021 to match our census dataset (May of 2021).
+
+
+
+
+
+
+
+
+```{r, include=FALSE}
+pr_tr <- c("Newfoundland and Labrador", "Prince Edward Island","Nova Scotia","New Brunswick","Quebec","Ontario","Manitoba","Saskatchewan","Alberta","British Columbia","Northwest Territories")
+
+ref_range <- c("2020-10","2021-01","2021-04")
+
+jvws_filtered <- jvws |> 
+  filter(GEO %in% pr_tr & REF_DATE %in% ref_range & !DGUID %in% c("2021S05001110","2021S05006110")) #remove economic region data
+
+jv_pr <- jvws_filtered |> group_by(GEO) %>%
+  summarise(
+    vac_sum = sum(if_else(Statistics == "Job vacancies", VALUE, 0), na.rm = TRUE),
+    emp_sum = sum(if_else(Statistics == "Payroll employees", VALUE, 0), na.rm = TRUE),
+    vacancy_rate = vac_sum / (vac_sum + emp_sum)
+  )
+
+ws_pr <- jvws_filtered |>
+  select(GEO, REF_DATE, Statistics, VALUE) |>
+  filter(Statistics %in% c("Job vacancies", "Average offered hourly wage")) |>
+  pivot_wider(
+    names_from  = Statistics,
+    values_from = VALUE
+  ) |>
+  rename(job_vacancies = `Job vacancies`, avg_offered_hourly_wage = `Average offered hourly wage` )
+  
+ws_pr_filtered <- ws_pr |>
+  group_by(GEO) |>
+  summarise(
+    wage_weighted = sum(avg_offered_hourly_wage * job_vacancies, na.rm = TRUE) /
+                    sum(job_vacancies, na.rm = TRUE),
+    vac_total     = sum(job_vacancies, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+
+prov <- ws_pr_filtered |>
+  filter(!GEO == "Northwest Territories") |>
+  dplyr::transmute(
+    GEO,
+    avg_wage = as.numeric(wage_weighted),
+    vacancies = as.numeric(vac_total),
+    vacancies_k = as.integer(round(vacancies/1000, digits = 0))
+  )
+
+heat <- prov |>
+  transmute(GEO,
+            `Avg wage ($/h)` = avg_wage,
+            `Vacancies (k = 1000 jobs)`  = vacancies_k) |>
+  pivot_longer(-GEO, names_to = "metric", values_to = "value") |>
+  group_by(metric) |>
+  mutate(rel = scales::rescale(value, to = c(0,1))) |>
+  ungroup()
+```
+
+
+
+
+```{r, include = FALSE}
+p <- ggplot(heat, aes(metric, fct_reorder(GEO, ifelse(metric == "Avg wage ($/h)", value, 0)), fill = rel)) +
+  geom_tile(width = 0.9, height = 0.9) +
+  geom_text(aes(label = ifelse(metric == "Avg wage ($/h)",
+                               sprintf("$%.2f", value),
+                               comma(value))), color = "black", size = 3) +
+ scale_fill_gradient(
+    low  = "#fee8c8",
+    high = "#cb181d",
+    name = "Darker red = higher value"   # <- legend title (was "rel")
+  ) +
+  labs(
+  x = NULL, y = NULL,
+  title = "In 2021, did B.C. have one of the highest job vacancies and \n average offered hourly wage for those jobs?",
+  subtitle = "Vacancies and its Average offered hourly wages by provinces",
+  caption = "Source: Statistics Canada (JVWS, 2021)"
+) +
+theme_minimal(base_size = 12) +
+theme(
+  legend.position = "right",
+  legend.title = element_text(size = 10),
+  legend.key.height = unit(4, "mm"),
+  plot.caption.position = "plot",                 # place caption below the plot
+  plot.caption = element_text(margin = margin(t = 12)),  # push it away from x-axis
+  plot.margin = margin(t = 10, r = 10, b = 20, l = 10)   # extra bottom space (optional)
+)
+
+```
+
+
+
+```{r, include=TRUE, , echo=FALSE, fig.width=8}
+p
+```
+
+
+ 
+B.C.'s labor market in 2021 stood out for a compelling combination: abundant job openings paired with above-average wages. This dual advantage distinguished it from competitors like Ontario, where higher vacancy numbers masked lower compensation. The darker shading on B.C. 's bars visually emphasizes the province’s strong labor demand, signaling that it not only had many available jobs but also paid them at rates above the national average.
+
+The reader should notice that while Ontario displayed slightly higher job vacancies overall, the average offered wage for those positions was lower than in B.C., indicating a possible labor oversupply in Ontario’s job market. In contrast, B.C.’s balance of high vacancies and high wages suggests a more favorable market for young job seekers, one where both opportunity and compensation align.
+
+By focusing on this relationship between job availability and wage level, the visualization supports a key finding: young Canadians likely viewed B.C. as a province with abundant, well-paying employment prospects. This complements earlier insights about income and quality of life, helping to explain why B.C. remained an attractive destination despite its higher living costs.
+
+Having identified strong economic incentives through income and employment data, the next section examines whether these financial opportunities offset B.C.’s higher living expenses, using cost-of-living data from the Market Basket Measure (MBM).
+
+
+
+
+
+
+### Are Living expenses Cheaper or equal in B.C.?
+To understand whether differences in the cost of living influence inter-provincial migration, we analyzed the Market Basket Measure (MBM) thresholds, Statistics Canada’s benchmark for basic living expenses across provinces, adjusted to current dollars. The data were filtered for 2020 to 2021 to align with our census-based migration findings.
+
+
+
+```{r, include=FALSE}
+# the file exceeds the upload limit; the data file was retrieved from https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1110006601
+
+MBM_Data <- read_csv("MBM_Data.csv")
+```
+
+
+```{r, include=FALSE}
+library(readr)
+
+min_pop_lower <- 30000
+
+MBM_clean <- MBM_Data %>%
+  filter(
+    REF_DATE == 2021,
+    `Dollar concept` == "Current dollars",
+    Component == "Total threshold"
+  ) %>%
+  mutate(
+    # identify rural & banded entries
+    is_rural  = str_detect(GEO, regex("\\brural\\b", ignore_case = TRUE)),
+    has_band  = str_detect(GEO, regex("population\\s*[0-9]", ignore_case = TRUE)),
+    # extract the lower bound of the population interval when present
+    pop_lower = suppressWarnings(parse_number(str_match(GEO, "population\\s*([0-9,]+)")[, 2])),
+    # urban population-band rows (exclude rural; optionally require >= 30,000)
+    is_band_urban = has_band & !is_rural & (is.na(pop_lower) | pop_lower >= min_pop_lower),
+    # named city/CMA/CA rows: usually "City, Province" -> contain a comma
+    is_city_urban = !has_band & !is_rural & str_detect(GEO, ",")
+  ) %>%
+  # keep either urban population bands or named urban cities
+  filter(is_band_urban | is_city_urban) %>%
+  # map to province using province names in GEO (works for both kinds of rows)
+  mutate(
+    Province = case_when(
+      str_detect(GEO, "British Columbia")                  ~ "BC",
+      str_detect(GEO, "Alberta")                           ~ "AB",
+      str_detect(GEO, "Saskatchewan")                      ~ "SK",
+      str_detect(GEO, "Manitoba")                          ~ "MB",
+      str_detect(GEO, "Ontario")                           ~ "ON",
+      str_detect(GEO, "Québec|Quebec")                     ~ "QC",
+      str_detect(GEO, "Nova Scotia")                       ~ "NS",
+      str_detect(GEO, "New Brunswick")                     ~ "NB",
+      str_detect(GEO, "Newfoundland|Labrador")             ~ "NL",
+      str_detect(GEO, "Prince\\s+Edward\\s+Island")        ~ "PE",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(Province)) %>%
+  group_by(Province) %>%
+  summarise(
+    Avg_VALUE = mean(VALUE, na.rm = TRUE),  # unweighted average of selected urban entries
+    n_rows    = dplyr::n(),                 # how many entries per province went into the mean
+    .groups   = "drop"
+  )
+```
+
+
+```{r, fig.width=15, fig.height=15, include = FALSE}
+canada <- rnaturalearth::ne_states("canada", returnclass = "sf") |>
+  st_transform(3347)
+
+map_prov <- canada %>%
+  left_join(MBM_clean, by = c("postal" = "Province")) %>%
+  filter(!postal %in% c("YT","NT","NU"))
+
+
+# label points ----------------------------------------------------------------
+pts    <- sf::st_point_on_surface(sf::st_geometry(map_prov))
+coords <- sf::st_coordinates(pts)
+label_df <- dplyr::bind_cols(sf::st_drop_geometry(map_prov), as.data.frame(coords)) |>
+  dplyr::rename(X = X, Y = Y) |>
+  dplyr::mutate(label = scales::comma(round(Avg_VALUE, 0)))
+
+# nudges for small/skinny provinces (meters in EPSG:3347)
+offsets <- tibble::tribble(
+  ~postal, ~dx,     ~dy,
+  "PE",    110000, -15000,
+  "NS",     80000, -10000,
+  "NB",     35000,  20000,
+  "NL",     80000, -30000,
+  "QC",    -60000, -60000
+)
+label_df <- label_df |>
+  dplyr::left_join(offsets, by = "postal") |>
+  dplyr::mutate(
+    dx = tidyr::replace_na(dx, 0), dy = tidyr::replace_na(dy, 0),
+    X_lab = X + dx, Y_lab = Y + dy
+  )
+
+# slightly smaller font for tiny provinces
+small_prov <- c("PE","NS","NB","NL")
+label_df <- label_df |>
+  dplyr::mutate(size = ifelse(postal %in% small_prov, 3.4, 4.4))
+
+# plot -----------------------------------------------------------------------
+p <- ggplot(map_prov) +
+  geom_sf(aes(fill = Avg_VALUE), color = "white", linewidth = 0.3) +
+  geom_segment(
+    data = dplyr::filter(label_df, dx != 0 | dy != 0),
+    aes(x = X, y = Y, xend = X_lab, yend = Y_lab),
+    linewidth = 0.3, color = "grey25", alpha = 0.6
+  ) +
+  shadowtext::geom_shadowtext(
+    data = label_df,
+    aes(X_lab, Y_lab, label = label),
+    size = label_df$size, fontface = "bold",
+    colour = "black", bg.colour = "white", bg.r = 0.08
+  ) +
+  scale_fill_gradient(
+    low = "#fde0dd",
+    high = "#67000d",
+    na.value = "grey90",           
+    labels = comma,                
+    name = "Average Total Living Expense ($)"
+  ) +
+  labs(
+    title = "What are the average Total Living Expense Threshold by Province (MBM, 2021)",
+    subtitle = "Based on 2024 Constant Dollars - Market Basket Measure",
+    caption = "Source: Statistics Canada - MBM Table"
+  ) +
+  coord_sf(expand = FALSE) +
+  theme_minimal(base_size = 15) +
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    axis.text = element_blank(), axis.ticks = element_blank(),
+    panel.grid = element_blank(), axis.title = element_blank(),
+    legend.position = "right",
+    plot.margin = margin(12, 22, 12, 22)
+  )
+```
+
+
+```{r, fig.width=15, fig.height=15, include = TRUE, echo=FALSE}
+p
+```
+
+
+This visualization presents a Canadian map of average total living expenses by province, limited to regions with populations of at least 30,000 to prevent rural cost distortions. The map reveals that Alberta and B.C. have the highest average total living expenses, with Ontario following closely behind. Interestingly, the difference between B.C. and both Alberta and Ontario is relatively small. This narrow gap helps explain earlier migration patterns: although B.C. is not significantly cheaper, it continues to attract young adults from these provinces due to a combination of comparable costs and superior employment and lifestyle opportunities. In essence, young Canadians from Ontario and Alberta are moving not for affordability but for a better trade-off between income, environment, and livability.
+
+A particularly notable finding is Quebec’s position on the map. Quebec has the lowest average total cost of living among all provinces, and when cross-referenced with previous visualizations on job vacancies and hourly wages, the province also ranks second in job vacancy rate and fourth in average offered wage. Economically, this suggests that Quebec offers strong financial advantages, lower living costs and steady employment opportunities. Yet, migration to Quebec remains limited among young Canadians. 
+
+Quebec's position illuminates the limits of economic determinism in migration studies. Despite offering the lowest living costs and strong labor market indicators, Quebec attracted minimal inter-provincial migration from young English-speaking Canadians. This pattern suggests that cultural and linguistic accessibility can function as binding constraints, effectively overriding financial advantages. The finding aligns with migration theory emphasizing that social integration prospects - the ability to build networks, access services, and participate in community life - often outweigh pure economic calculus. For English-speaking young adults from Ontario or Alberta, the prospect of navigating Quebec's French-dominant workplace and social sphere may represent a barrier steep enough to negate substantial cost-of-living savings.
+
+
+As discussed in class, this aligns with broader migration theory emphasizing that social and cultural accessibility can outweigh financial incentives when individuals choose where to relocate.
+
+To build on these insights, further research could include surveys of inter-provincial migrants currently living in B.C. to examine how they weigh financial, cultural, and lifestyle considerations in their relocation choices. Such qualitative data would provide a more complete picture of the causal relationships behind these observed migration trends.
+
+
+
+ 
+ 
+
+
+## Summary
+To summarize, this analysis suggests that young Canadian adults could have moved to B.C. between 2020 and 2021 because the province offered the most balanced mix of financial opportunity and livability. Alberta and Ontario had comparable costs of living but may have faced tighter labor markets or slower wage growth, encouraging young adults to look elsewhere for advancement. B.C. could have distinguished itself through strong job demand, competitive wages, and manageable living expenses, making it both an economically and socially attractive destination.
+
+Beyond financial factors, B.C.’s broader appeal may lie in its environmental and cultural advantages, such as a milder climate, urban inclusivity, and access to both career and lifestyle benefits. These non-economic attributes could have played a central role in motivating young Canadians to relocate.
+
+This study also highlights an important area for future exploration. While the quantitative data help identify patterns, qualitative research could provide deeper insight into how individuals weigh financial, social, and cultural motivations when deciding to move. Surveys or interviews with inter-provincial migrants living in B.C. could uncover the personal perspectives behind these migration trends, offering a richer understanding of what drives young adults to choose one province over another. In conclusion, young adults may not have chosen B.C. because it was cheaper, but because it could provide the best overall value between economic opportunity, lifestyle, and long-term well-being.
+ 
